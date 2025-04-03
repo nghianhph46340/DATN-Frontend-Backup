@@ -99,59 +99,12 @@ const collapsed = ref(false);
 const selectedKeys = ref([store.indexMenu]);
 console.log(selectedKeys);
 
-const pageTitle = ref('Bán hàng');
 const changeRoute = (path) => {
     store.getPath(path);
     store.getIndex(path);
     router.push(path);
     console.log(store.checkRouter);
-    // let paths = router.path;
-    switch (path) {
-        case '/admin':
-            pageTitle.value = 'Bán hàng';
-            break;
-        case '/admin/baocaothongke':
-            pageTitle.value = 'Thống kê';
-            break;
-        case '/admin/quanlysanpham':
-            pageTitle.value = 'Sản phẩm';
-            break;
-        case '/admin/quanlynhanvien':
-            pageTitle.value = 'Nhân viên';
-            break;
-        case '/admin/quanlynhanvien/add':
-            pageTitle.value = 'Nhân viên';
-            break;
-        case '/admin/quanlynhanvien/update':
-            pageTitle.value = 'Nhân viên';
-            break;
-        default:
-            pageTitle.value = 'Bán hàng';
-            break;
-
-    }
 };
-// const getIndexPath = () => {
-//     const paths = route.path;
-//     console.log(paths + 'patchGetIndex');
-//     switch (paths) {
-//         case '/admin':
-//             selectedKeys.value = ['1'];
-//             break;
-
-//         case '/admin/quanlysanpham':
-//             selectedKeys.value = ['3'];
-//             break;
-
-//         default:
-//             selectedKeys.value = ['1'];
-//             break;
-
-//     }
-// }
-// watch(() => router.path, (newPath) => {
-//     selectedKeys.value = [getKeyByPath(newPath)];
-// });
 onMounted(() => {
     store.getIndex(route.path);
     selectedKeys.value = store.indexMenu;

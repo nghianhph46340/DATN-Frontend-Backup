@@ -91,7 +91,7 @@
                                 <th>STT</th>
                                 <th>Tên sản phẩm</th>
                                 <!-- <th>Giới tính</th> -->
-                                <th>Giá nhập</th>
+
                                 <th>Giá bán</th>
                                 <th>Số lượng</th>
                                 <th>Danh mục</th>
@@ -112,8 +112,8 @@
                                 <!-- <td
                                     :style="{ backgroundColor: item.sanPham.gioi_tinh === null || item.sanPham.gioi_tinh === '' ? '#ff6b6b' : '' }">
                                     {{ item.sanPham.gioi_tinh ? "Nam" : "Nữ" }}</td> -->
-                                <td :style="{ backgroundColor: item.gia_nhap === 0 ? '#ff6b6b' : '' }">{{ item.gia_nhap
-                                    }}</td>
+                                <!-- <td :style="{ backgroundColor: item.gia_nhap === 0 ? '#ff6b6b' : '' }">{{ item.gia_nhap
+                                    }}</td> -->
                                 <td :style="{ backgroundColor: item.gia_ban === 0 ? '#ff6b6b' : '' }">{{ item.gia_ban }}
                                 </td>
                                 <td
@@ -165,6 +165,7 @@ import { useGbStore } from '@/stores/gbStore';
 import { useRoute } from 'vue-router';
 import { message } from 'ant-design-vue';
 import { Upload } from 'ant-design-vue';
+import { storeToRefs } from 'pinia';
 
 
 const route = useRoute();
@@ -461,6 +462,7 @@ const saveExcelImport = async () => {
 
             // Tải lại danh sách sản phẩm nếu cần
             await store.getAllSanPhamNgaySua();
+            store.justAddedProduct = true;
             router.push('/admin/quanlysanpham');
         }
     } catch (error) {
