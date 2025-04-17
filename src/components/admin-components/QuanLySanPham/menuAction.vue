@@ -1,7 +1,8 @@
 <template>
     <div class="mb-4 d-flex justify-content-between">
         <div class="d-flex gap-2 flex-wrap">
-            <template v-if="!store.checkRouter.includes('/quanlysanpham/add')">
+            <template
+                v-if="!store.checkRouter.includes('/quanlysanpham/add') && !store.checkRouter.includes('/quanlysanpham/update')">
                 <a-button type="" @click="showFilter" class="d-flex align-items-center btn-filter">
                     <FilterOutlined class="icon-filler" />
                     <span class="button-text">Bộ lọc</span>
@@ -91,7 +92,7 @@
                         <!-- Bộ lọc Giá -->
                         <div class="filter-group">
                             <div class="filter-title">Giá</div>
-                            <a-slider v-model:value="value2" range :min="0" :max="10000000" :step="100000"
+                            <a-slider v-model:value="value2" range :min="0" :max="maxPriceFromProducts" :step="100000"
                                 :tipFormatter="value => `${value.toLocaleString('vi-VN')} đ`" />
                             <div class="price-range">
                                 <span>{{ value2[0].toLocaleString('vi-VN') }} đ</span>
@@ -111,46 +112,125 @@
 
                 <a-select class="mb-2 ms-2 custom-select" v-model:value="luuBien" show-search placeholder="Sắp xếp"
                     style="width: 150px;" :options="listSort" :filter-option="filterOption"></a-select>
-                <a-select class="mb-2 ms-2 custom-select" v-model:value="xemTheo" show-search placeholder="Xem theo"
-                    style="width: 150px;" :options="listXemTheo" :filter-option="filterOption"></a-select>
+                <!-- <a-select class="mb-2 ms-2 custom-select" v-model:value="xemTheo" show-search placeholder="Xem theo"
+                    style="width: 150px;" :options="listXemTheo" :filter-option="filterOption"></a-select> -->
 
                 <a-button type="" class="d-flex align-items-center btn-filter" @click="showExportModal">
                     <ExportOutlined class="icon-filler" />
                     <span class="button-text">Xuất excel</span>
                 </a-button>
             </template>
+            <!-- Nhập excel button always visible -->
             <a-button type="" class="d-flex align-items-center btn-filter" @click="openModalImportExcel = true">
                 <ImportOutlined class="icon-filler" />
                 <span class="button-text">Nhập excel</span>
             </a-button>
             <!-- Modal nhập excel -->
-            <a-modal v-model:open="openModalImportExcel" title="Nhập excel">
-                <a-upload :file-list="fileList" :remove="handleRemove" :before-upload="beforeUpload" :max-count="1"
-                    accept=".xlsx,.xls" @change="handleFileChange">
-                    <a-button>
-                        <upload-outlined />
-                        Chọn file Excel
-                    </a-button>
-                </a-upload>
-                <p v-if="selectedFile">File đã chọn: {{ selectedFile.name }}</p>
+            <a-modal v-model:open="openModalImportExcel" title="Nhập Excel" width="650px">
+                <div class="upload-container">
+                    <div class="upload-instructions mb-3">
+                        <h5>Hướng dẫn nhập Excel</h5>
+                        <ol>
+                            <li>Tải <a @click.prevent="downloadTemplate" href="#" class="template-link">file mẫu</a>
+                                hoặc sử dụng
+                                file Excel có định dạng tương tự</li>
+                            <li>Điền thông tin sản phẩm (các trường có dấu * là bắt buộc)</li>
+                            <li>Tải lên file và kiểm tra dữ liệu trước khi lưu</li>
+                        </ol>
+                    </div>
+
+                    <div class="upload-area" :class="{ 'has-file': selectedFile, 'is-dragging': isDragging }"
+                        @dragenter.prevent="isDragging = true" @dragover.prevent="isDragging = true"
+                        @dragleave.prevent="isDragging = false" @drop.prevent="handleFileDrop">
+                        <input type="file" ref="fileInput" style="display: none" accept=".xlsx,.xls"
+                            @change="handleManualFileChange" />
+
+                        <template v-if="!selectedFile">
+                            <div class="upload-placeholder">
+                                <upload-outlined class="upload-icon" />
+                                <p class="mb-2">Kéo thả file Excel vào đây hoặc</p>
+                                <a-button type="primary" @click="triggerFileSelect">
+                                    Chọn file
+                                </a-button>
+                            </div>
+                        </template>
+
+                        <div v-else class="selected-file">
+                            <file-excel-outlined class="file-icon" />
+                            <div class="file-info">
+                                <p class="file-name">{{ selectedFile.name }}</p>
+                                <p class="file-size">{{ formatFileSize(selectedFile.size) }}</p>
+                            </div>
+                            <div class="file-actions">
+                                <a-button type="text" @click="replaceFile">
+                                    <reload-outlined />
+                                </a-button>
+                                <a-button type="text" @click="removeFile">
+                                    <delete-outlined />
+                                </a-button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div v-if="importError" class="error-message mt-3">
+                        <alert-outlined />
+                        <span>{{ importError }}</span>
+                    </div>
+
+                    <div v-if="importValidating" class="validating-status mt-3">
+                        <loading-outlined spin />
+                        <span>Đang kiểm tra dữ liệu...</span>
+                    </div>
+                </div>
+
                 <template #footer>
-                    <a-button key="back" @click="openModalImportExcel = false">Hủy</a-button>
-                    <a-button key="submit" type="primary" :loading="uploadLoading" :disabled="!selectedFile"
-                        @click="handleImportExcel">
+                    <a-button key="back" @click="closeImportModal">Hủy</a-button>
+                    <a-button key="preview" type="default" :disabled="!selectedFile || uploadLoading"
+                        @click="validateAndPreview">
+                        <eye-outlined />
+                        Xem trước
+                    </a-button>
+                    <a-button key="submit" type="primary" :loading="uploadLoading"
+                        :disabled="!selectedFile || uploadLoading" @click="handleImportExcel">
+                        <import-outlined />
                         Import
                     </a-button>
                 </template>
             </a-modal>
             <!-- Modal hiển thị dữ liệu import -->
-            <a-modal v-model:open="importExcelModal" title="Dữ liệu import" width="90%" :style="{ top: '20px' }">
+            <a-modal v-model:open="importExcelModal" title="Xác nhận dữ liệu import" width="90%"
+                :style="{ top: '20px' }">
+                <div class="data-preview-stats" v-if="importExcelData.length">
+                    <div class="stat-item">
+                        <p class="stat-value">{{ importExcelData.length }}</p>
+                        <p class="stat-label">Tổng số dòng</p>
+                    </div>
+                    <div class="stat-item">
+                        <p class="stat-value">{{ countValidRows() }}</p>
+                        <p class="stat-label">Dòng hợp lệ</p>
+                    </div>
+                    <div class="stat-item text-warning" v-if="countInvalidRows() > 0">
+                        <p class="stat-value">{{ countInvalidRows() }}</p>
+                        <p class="stat-label">Dòng có lỗi</p>
+                    </div>
+                </div>
+
+                <div class="data-action-buttons mb-3" v-if="importExcelData.length">
+                    <a-radio-group v-model:value="dataPreviewMode" button-style="solid">
+                        <a-radio-button value="all">Tất cả dữ liệu</a-radio-button>
+                        <a-radio-button value="valid" :disabled="countValidRows() === 0">Chỉ dữ liệu hợp
+                            lệ</a-radio-button>
+                        <a-radio-button value="invalid" :disabled="countInvalidRows() === 0">Chỉ dữ liệu
+                            lỗi</a-radio-button>
+                    </a-radio-group>
+                </div>
+
                 <div class="table-container">
                     <table class="table table-bordered">
                         <thead>
                             <tr>
                                 <th>STT</th>
                                 <th>Tên sản phẩm</th>
-                                <!-- <th>Giới tính</th> -->
-
                                 <th>Giá bán</th>
                                 <th>Số lượng</th>
                                 <th>Danh mục</th>
@@ -158,69 +238,82 @@
                                 <th>Chất liệu</th>
                                 <th>Màu sắc</th>
                                 <th>Kích thước</th>
+                                <th>Trạng thái</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <tr v-for="(item, index) in importExcelData" :key="index">
+                            <tr v-for="(item, index) in filteredImportData" :key="index"
+                                :class="{ 'has-error': hasRowError(item) }">
                                 <td>{{ index + 1 }}</td>
-                                <td
-                                    :style="{ backgroundColor: item.sanPham.ten_san_pham === null || item.sanPham.ten_san_pham === '' ? '#ff6b6b' : '' }">
-                                    {{
-                                        item.sanPham.ten_san_pham
-                                    }}</td>
-                                <!-- <td
-                                    :style="{ backgroundColor: item.sanPham.gioi_tinh === null || item.sanPham.gioi_tinh === '' ? '#ff6b6b' : '' }">
-                                    {{ item.sanPham.gioi_tinh ? "Nam" : "Nữ" }}</td> -->
-                                <!-- <td :style="{ backgroundColor: item.gia_nhap === 0 ? '#ff6b6b' : '' }">{{ item.gia_nhap
-                                    }}</td> -->
-                                <td :style="{ backgroundColor: item.gia_ban === 0 ? '#ff6b6b' : '' }">{{ item.gia_ban }}
+                                <td :class="{ 'cell-error': !item.sanPham.ten_san_pham }">
+                                    {{ item.sanPham.ten_san_pham || '(Thiếu dữ liệu)' }}
                                 </td>
-                                <td
-                                    :style="{ backgroundColor: item.so_luong === 0 || item.so_luong === null ? '#ff6b6b' : '' }">
-                                    {{
-                                        item.so_luong
-                                    }}</td>
-                                <td
-                                    :style="{ backgroundColor: item.sanPham.danhMuc.ten_danh_muc === null || item.sanPham.danhMuc.ten_danh_muc === '' ? '#ff6b6b' : '' }">
-                                    {{ item.sanPham.danhMuc.ten_danh_muc }}</td>
-                                <td
-                                    :style="{ backgroundColor: item.sanPham.thuongHieu.ten_thuong_hieu === null || item.sanPham.thuongHieu.ten_thuong_hieu === '' ? '#ff6b6b' : '' }">
-                                    {{ item.sanPham.thuongHieu.ten_thuong_hieu }}</td>
-                                <td
-                                    :style="{ backgroundColor: item.sanPham.chatLieu.ten_chat_lieu === null || item.sanPham.chatLieu.ten_chat_lieu === '' ? '#ff6b6b' : '' }">
-                                    {{ item.sanPham.chatLieu.ten_chat_lieu }}</td>
-                                <td
-                                    :style="{ backgroundColor: item.mauSac.ma_mau_sac === null || item.mauSac.ma_mau_sac === '' ? '#ff6b6b' : '' }">
-                                    {{ item.mauSac.ma_mau_sac + ' ' + item.mauSac.ten_mau_sac }}</td>
-                                <td
-                                    :style="{ backgroundColor: item.kichThuoc.gia_tri === null || item.kichThuoc.gia_tri === '' ? '#ff6b6b' : '' }">
-                                    {{ item.kichThuoc.gia_tri + ' ' + item.kichThuoc.don_vi }}</td>
+                                <td :class="{ 'cell-error': item.gia_ban === 0 }">
+                                    {{ formatPrice(item.gia_ban) }}
+                                </td>
+                                <td :class="{ 'cell-error': item.so_luong === 0 || item.so_luong === null }">
+                                    {{ item.so_luong || '(Thiếu dữ liệu)' }}
+                                </td>
+                                <td :class="{ 'cell-error': !item.sanPham.danhMuc.ten_danh_muc }">
+                                    {{ item.sanPham.danhMuc.ten_danh_muc || '(Thiếu dữ liệu)' }}
+                                </td>
+                                <td :class="{ 'cell-error': !item.sanPham.thuongHieu.ten_thuong_hieu }">
+                                    {{ item.sanPham.thuongHieu.ten_thuong_hieu || '(Thiếu dữ liệu)' }}
+                                </td>
+                                <td :class="{ 'cell-error': !item.sanPham.chatLieu.ten_chat_lieu }">
+                                    {{ item.sanPham.chatLieu.ten_chat_lieu || '(Thiếu dữ liệu)' }}
+                                </td>
+                                <td :class="{ 'cell-error': !item.mauSac.ma_mau_sac }">
+                                    {{ (item.mauSac.ma_mau_sac && item.mauSac.ten_mau_sac) ?
+                                        (item.mauSac.ma_mau_sac + ' ' + item.mauSac.ten_mau_sac) : '(Thiếu dữ liệu)' }}
+                                </td>
+                                <td :class="{ 'cell-error': !item.kichThuoc.gia_tri }">
+                                    {{ (item.kichThuoc.gia_tri) ?
+                                        (item.kichThuoc.gia_tri + ' ' + item.kichThuoc.don_vi) : '(Thiếu dữ liệu)' }}
+                                </td>
+                                <td>
+                                    <a-tag :color="item.trang_thai ? 'green' : 'red'">
+                                        {{ item.trang_thai ? 'Hoạt động' : 'Không hoạt động' }}
+                                    </a-tag>
+                                </td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
+
+                <div class="import-summary mt-3" v-if="countInvalidRows() > 0">
+                    <a-alert type="warning" show-icon>
+                        <template #message>
+                            <span>Cảnh báo: Có {{ countInvalidRows() }} dòng dữ liệu chứa lỗi</span>
+                        </template>
+                        <template #description>
+                            <p>Các ô có nền đỏ là dữ liệu bị thiếu hoặc không hợp lệ. Bạn có thể:</p>
+                            <ul>
+                                <li>Tiếp tục import (chỉ các dòng hợp lệ sẽ được lưu)</li>
+                                <li>Hủy để sửa file Excel và thử lại</li>
+                            </ul>
+                        </template>
+                    </a-alert>
+                </div>
+
                 <template #footer>
                     <a-button key="back" @click="importExcelModal = false">Hủy</a-button>
-                    <a-button key="submit" type="primary" :loading="uploadLoading" @click="saveExcelImport">
-                        Save
+                    <a-button key="submit" type="primary" :loading="uploadLoading" :disabled="countValidRows() === 0"
+                        @click="saveExcelImport">
+                        <save-outlined />
+                        Lưu {{ countValidRows() }} sản phẩm
                     </a-button>
                 </template>
             </a-modal>
         </div>
-        <template v-if="!store.checkRouter.includes('quanlysanpham/add')">
+        <template
+            v-if="!store.checkRouter.includes('/quanlysanpham/add') && !store.checkRouter.includes('/quanlysanpham/update')">
             <a-button type="primary" style="background-color: #f33b47" @click="changeRouter('/admin/quanlysanpham/add')"
                 class="d-flex align-items-center">
                 <PlusOutlined />
                 <span class="button-text">Thêm sản phẩm</span>
             </a-button>
         </template>
-    </div>
-
-    <div class="menu-container d-flex" v-if="filteredCount"
-        style="margin-left:30px; margin-top: 10px; margin-bottom: 10px">
-        <span style="font-weight: 500;">
-            Hiển thị: {{ filteredCount }} sản phẩm
-        </span>
     </div>
 
     <a-modal v-model:open="exportModalVisible" title="Xuất Excel" width="700px">
@@ -253,6 +346,10 @@
         </div>
 
         <template #footer>
+            <a-button key="test" type="default" @click="exportTestExcel">
+                <file-excel-outlined />
+                Xuất dữ liệu mẫu
+            </a-button>
             <a-button key="back" @click="exportModalVisible = false">Hủy</a-button>
             <a-button key="submit" type="primary" :loading="exportLoading" :disabled="!canExport"
                 @click="handleExportExcel">
@@ -263,14 +360,22 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue';
+import { ref, onMounted, computed, watch, onBeforeUnmount } from 'vue';
+import * as XLSX from 'xlsx';
 import {
     FilterOutlined,
     PlusOutlined,
     ExportOutlined,
     ImportOutlined,
     UploadOutlined,
-    SyncOutlined
+    SyncOutlined,
+    FileExcelOutlined,
+    DeleteOutlined,
+    ReloadOutlined,
+    EyeOutlined,
+    AlertOutlined,
+    LoadingOutlined,
+    SaveOutlined
 } from '@ant-design/icons-vue';
 import { useRouter } from 'vue-router';
 import { useGbStore } from '@/stores/gbStore';
@@ -279,10 +384,118 @@ import { message } from 'ant-design-vue';
 import { Upload } from 'ant-design-vue';
 import { storeToRefs } from 'pinia';
 
+// Định nghĩa các events
+const emit = defineEmits(['refresh-data']);
+
 const route = useRoute();
 const store = useGbStore();
 const visible = ref(false);
 const value = ref('Hoạt động');
+
+// Function to update store.checkRouter based on the current route
+const updateCheckRouter = () => {
+    store.getPath(route.path);
+    store.getRoutePresent(route.path);
+    console.log('Current path:', route.path);
+    console.log('Updated store.checkRouter:', store.checkRouter);
+};
+
+// Thêm hàm loadFilterData để tải lại dữ liệu cho bộ lọc
+const loadFilterData = async () => {
+    console.log('Đang tải lại dữ liệu cho bộ lọc...');
+    try {
+        await Promise.all([
+            store.getAllDM(),   // Danh mục
+            store.getAllTH(),   // Thương hiệu
+            store.getAllCL(),   // Chất liệu
+            store.getAllMS(),   // Màu sắc
+            store.getAllKT(),   // Kích thước
+        ]);
+        console.log('Đã tải lại dữ liệu cho bộ lọc thành công');
+        store.needFilterRefresh = false;
+    } catch (error) {
+        console.error('Lỗi khi tải lại dữ liệu cho bộ lọc:', error);
+    }
+};
+
+// Thêm hàm để xử lý sự kiện filter-data-updated
+const handleFilterDataUpdated = () => {
+    console.log('Đã nhận sự kiện filter-data-updated');
+    loadFilterData().then(() => {
+        // Kiểm tra xem có thuộc tính mới để thêm vào bộ lọc không
+        checkAndSelectNewAttributes();
+    });
+};
+
+// Thêm hàm mới để kiểm tra và chọn các thuộc tính mới
+const checkAndSelectNewAttributes = () => {
+    // Lấy thuộc tính mới từ localStorage nếu có
+    const lastAddedAttributes = localStorage.getItem('lastAddedAttributes');
+    if (lastAddedAttributes) {
+        try {
+            const attributes = JSON.parse(lastAddedAttributes);
+            console.log('Đã tìm thấy thuộc tính mới cần chọn:', attributes);
+
+            // Thêm thuộc tính mới vào các lựa chọn
+            if (attributes.danhMuc) {
+                valueDanhMuc.value = [...valueDanhMuc.value, attributes.danhMuc];
+            }
+            if (attributes.thuongHieu) {
+                valueThuongHieu.value = [...valueThuongHieu.value, attributes.thuongHieu];
+            }
+            if (attributes.chatLieu) {
+                valueChatLieu.value = [...valueChatLieu.value, attributes.chatLieu];
+            }
+            if (attributes.mauSac) {
+                valueMauSac.value = [...valueMauSac.value, attributes.mauSac];
+            }
+            if (attributes.kichThuoc) {
+                valueSize.value = [...valueSize.value, attributes.kichThuoc];
+            }
+
+            // Xóa khỏi localStorage sau khi sử dụng
+            localStorage.removeItem('lastAddedAttributes');
+
+            console.log('Đã cập nhật các giá trị đã chọn trong bộ lọc:');
+            console.log('- Danh mục:', valueDanhMuc.value);
+            console.log('- Thương hiệu:', valueThuongHieu.value);
+            console.log('- Chất liệu:', valueChatLieu.value);
+            console.log('- Màu sắc:', valueMauSac.value);
+            console.log('- Kích thước:', valueSize.value);
+        } catch (error) {
+            console.error('Lỗi khi xử lý thuộc tính mới:', error);
+        }
+    }
+};
+
+// Watch for route changes to handle browser back button
+watch(() => route.path, (newPath) => {
+    console.log('Route changed to:', newPath);
+    updateCheckRouter();
+}, { immediate: true });
+
+// Watch cho needFilterRefresh để tải lại dữ liệu khi cần
+watch(() => store.needFilterRefresh, (newValue) => {
+    if (newValue) {
+        console.log('Phát hiện needFilterRefresh = true, tải lại dữ liệu bộ lọc');
+        loadFilterData();
+    }
+});
+
+// Computed property để lấy giá bán lớn nhất
+const maxPriceFromProducts = computed(() => {
+    if (!store.getAllChiTietSanPham || store.getAllChiTietSanPham.length === 0) {
+        return 10000000; // Giá trị mặc định nếu chưa có dữ liệu
+    }
+
+    // Tìm giá bán lớn nhất trong danh sách chi tiết sản phẩm
+    const maxPrice = Math.max(...store.getAllChiTietSanPham.map(item =>
+        item.gia_ban ? Number(item.gia_ban) : 0
+    ));
+
+    // Làm tròn đến hàng trăm nghìn gần nhất và thêm khoảng dư
+    return Math.ceil(maxPrice / 100000) * 100000 + 100000;
+});
 
 // Sử dụng mảng để lưu nhiều giá trị
 const valueDanhMuc = ref([]);
@@ -291,6 +504,11 @@ const valueChatLieu = ref([]);
 const valueMauSac = ref([]);
 const valueSize = ref([]);
 const value2 = ref([0, 10000000]);
+
+// Cập nhật value2 khi maxPriceFromProducts thay đổi
+watch(() => maxPriceFromProducts.value, (newMaxPrice) => {
+    value2.value = [0, newMaxPrice];
+}, { immediate: true });
 
 const xemTheo = ref('0');
 
@@ -332,21 +550,21 @@ watch(() => store.getFilteredProducts, (newValue) => {
 
 const listSort = ref([
     { value: '1', label: 'Sắp xếp theo' },
-    { value: '2', label: 'Tên tăng dần' },
-    { value: '3', label: 'Tên giảm dần' },
-    { value: '4', label: 'Giá tăng dần' },
-    { value: '5', label: 'Giá giảm dần' },
-    { value: '6', label: 'Mới nhất' },
-    { value: '7', label: 'Cũ nhất' },
+    { value: '2', label: 'Mã sản phẩm tăng dần' },
+    { value: '3', label: 'Mã sản phẩm giảm dần' },
+    { value: '4', label: 'Tên tăng dần' },
+    { value: '5', label: 'Tên giảm dần' },
+    { value: '6', label: 'Số lượng tăng dần' },
+    { value: '7', label: 'Số lượng giảm dần' },
 ]);
 
-const listXemTheo = ref([
-    { value: '0', label: 'Tất cả sản phẩm' },
-    { value: '1', label: '5 sản phẩm' },
-    { value: '2', label: '10 sản phẩm' },
-    { value: '3', label: '15 sản phẩm' },
-    { value: '4', label: '20 sản phẩm' },
-])
+// const listXemTheo = ref([
+//     { value: '0', label: 'Tất cả sản phẩm' },
+//     { value: '1', label: '5 sản phẩm' },
+//     { value: '2', label: '10 sản phẩm' },
+//     { value: '3', label: '15 sản phẩm' },
+//     { value: '4', label: '20 sản phẩm' },
+// ])
 const luuBien = ref('1');
 const openModalImportExcel = ref(false);
 const fileList = ref([]);
@@ -354,6 +572,10 @@ const uploadLoading = ref(false);
 const selectedFile = ref(null);
 const importExcelModal = ref(false);
 const importExcelData = ref([]);
+const isDragging = ref(false);
+const importError = ref('');
+const importValidating = ref(false);
+const dataPreviewMode = ref('all');
 
 const showFilter = () => {
     // Kiểm tra dữ liệu trước khi mở bộ lọc
@@ -367,10 +589,17 @@ const onClose = () => {
 
 const router = useRouter();
 const changeRouter = (routers) => {
+    // Make sure to update the store before navigation
     store.getPath(routers);
     store.getRoutePresent(route.path);
+    store.getIndex(routers); // Make sure to call getIndex to update menu selection
+
+    // Log for debugging
+    console.log('Navigating to:', routers);
+    console.log('Updated store.checkRouter:', store.checkRouter);
+
+    // Navigate
     router.push(routers);
-    console.log(store.checkRouter);
 };
 
 // Hàm kiểm tra và tải dữ liệu cho bộ lọc
@@ -415,35 +644,34 @@ const checkAndLoadFilterData = async () => {
     }
 };
 
-// Hàm tải dữ liệu ban đầu
-const loadInitialData = async () => {
+// Tải dữ liệu ban đầu
+onMounted(async () => {
+    console.log('Menu Action component mounted');
     try {
-        console.log('Đang tải dữ liệu ban đầu...');
+        value2.value = [0, maxPriceFromProducts.value];
+        await store.getAllCTSP();
+        await store.getAllDM();   // Thay thế loadDanhMuc
+        await store.getAllTH();   // Thay thế loadThuongHieu
+        await store.getAllCL();   // Thay thế loadChatLieu
+        await store.getAllMS();   // Thay thế loadMauSac
+        await store.getAllKT();   // Thay thế loadKichThuoc
 
-        // Tải dữ liệu sản phẩm nếu chưa có
-        if (store.getAllSanPham.length === 0) {
-            await store.getAllSP();
-            console.log('Đã tải:', store.getAllSanPham.length, 'sản phẩm');
+        // Đăng ký sự kiện lắng nghe filter-data-updated
+        window.addEventListener('filter-data-updated', handleFilterDataUpdated);
+
+        // Kiểm tra nếu cần refresh bộ lọc
+        if (store.needFilterRefresh) {
+            loadFilterData();
         }
-
-        // Tải dữ liệu chi tiết sản phẩm nếu chưa có
-        if (store.getAllChiTietSanPham.length === 0) {
-            await store.getAllCTSP();
-            console.log('Đã tải:', store.getAllChiTietSanPham.length, 'chi tiết sản phẩm');
-        }
-
-        // Tải các dữ liệu cho bộ lọc
-        await checkAndLoadFilterData();
-
-        console.log('Hoàn tất tải dữ liệu ban đầu');
     } catch (error) {
         console.error('Lỗi khi tải dữ liệu ban đầu:', error);
-        message.error('Có lỗi khi tải dữ liệu, vui lòng thử lại');
+        message.error('Có lỗi xảy ra khi tải dữ liệu. Vui lòng thử lại sau!');
     }
-};
+});
 
-onMounted(async () => {
-    await loadInitialData();
+// Hủy đăng ký sự kiện khi component bị hủy
+onBeforeUnmount(() => {
+    window.removeEventListener('filter-data-updated', handleFilterDataUpdated);
 });
 
 const filterProducts = () => {
@@ -510,12 +738,12 @@ const filterOption = (input, option) => {
     return option.label.toLowerCase().indexOf(input.toLowerCase()) >= 0;
 };
 
-const formatPrice = (value) => {
-    return new Intl.NumberFormat('vi-VN', {
-        style: 'currency',
-        currency: 'VND'
-    }).format(value);
-};
+// const formatPrice = (value) => {
+//     return new Intl.NumberFormat('vi-VN', {
+//         style: 'currency',
+//         currency: 'VND'
+//     }).format(value);
+// };
 
 const handleRemove = (file) => {
     fileList.value = [];
@@ -544,41 +772,58 @@ const handleFileChange = (info) => {
     }
 };
 
-const handleImportExcel = async () => {
+// Thêm hàm mới để trigger file select
+const fileInput = ref(null);
+
+const triggerFileSelect = () => {
+    fileInput.value.click();
+};
+
+const handleManualFileChange = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    // Kiểm tra file type
+    const isExcel = file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+        file.type === 'application/vnd.ms-excel' ||
+        file.name.endsWith('.xlsx') ||
+        file.name.endsWith('.xls');
+
+    if (!isExcel) {
+        message.error('Vui lòng chỉ tải lên file Excel (.xlsx hoặc .xls)');
+        event.target.value = ''; // Reset input
+        return;
+    }
+
+    // Kiểm tra kích thước file (dưới 5MB)
+    const isLt5M = file.size / 1024 / 1024 < 5;
+    if (!isLt5M) {
+        message.error('File phải nhỏ hơn 5MB!');
+        event.target.value = ''; // Reset input
+        return;
+    }
+
+    console.log('File được chọn thủ công:', file);
+    console.log('File type:', file.type);
+    console.log('File size:', file.size);
+
+    selectedFile.value = file;
+};
+
+const handleImportExcel = async (event) => {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+
+    // Nếu chưa có file, yêu cầu chọn file
     if (!selectedFile.value) {
         message.error('Vui lòng chọn file Excel!');
         return;
     }
 
-    uploadLoading.value = true;
-
-    try {
-        // Fix: Correctly access the actual file object
-        // Ant Design Upload component stores the actual file in originFileObj
-        const file = selectedFile.value.originFileObj || selectedFile.value;
-
-        console.log('File được upload:', file);
-        console.log('File type:', file.type);
-        console.log('File size:', file.size);
-
-        // Make sure we're passing a raw File object to the service
-        const result = await store.importExcel(file);
-
-        console.table(result);
-        message.success('Import dữ liệu thành công!');
-        openModalImportExcel.value = false;
-        selectedFile.value = null;
-        fileList.value = [];
-        importExcelModal.value = true;
-        importExcelData.value = result;
-
-    } catch (error) {
-        console.error('Lỗi khi import Excel:', error);
-        console.error('Chi tiết lỗi:', error.response?.data);
-        message.error('Đã xảy ra lỗi khi import dữ liệu! ' + (error.response?.data?.message || ''));
-    } finally {
-        uploadLoading.value = false;
-    }
+    // Bắt đầu quá trình validation và preview
+    validateAndPreview();
 };
 
 const saveExcelImport = async () => {
@@ -589,24 +834,75 @@ const saveExcelImport = async () => {
             message.error('Lỗi hệ thống: Không thể lưu dữ liệu!');
             return;
         }
-        const result = await store.saveExcelImport(importExcelData.value);
-        console.log('Kết quả trả về:', result);
+
+        // Nếu có dòng không hợp lệ, chỉ lưu các dòng hợp lệ
+        const dataToSave = countInvalidRows() > 0
+            ? importExcelData.value.filter(item => !hasRowError(item))
+            : importExcelData.value;
+
+        // Log dữ liệu sẽ được lưu
+        console.log('Dữ liệu sẽ được lưu vào CSDL:', dataToSave);
+        console.log('Số lượng dòng dữ liệu hợp lệ:', dataToSave.length);
+
+        // Log thông tin thêm về dữ liệu
+        const categoryCounts = {};
+        dataToSave.forEach(item => {
+            const category = item.sanPham.danhMuc.ten_danh_muc;
+            categoryCounts[category] = (categoryCounts[category] || 0) + 1;
+        });
+        console.log('Phân loại sản phẩm theo danh mục:', categoryCounts);
+
+        const result = await store.saveExcelImport(dataToSave);
+        console.log('Kết quả lưu dữ liệu:', result);
 
         if (result) {
-            message.success('Lưu dữ liệu thành công!');
+            message.success(`Đã lưu thành công ${dataToSave.length} sản phẩm!`);
             importExcelModal.value = false;
 
+            // Cập nhật store
+            console.log('Bắt đầu tải dữ liệu sản phẩm mới nhất...');
             await store.getAllSanPhamNgaySua();
+            console.log('Dữ liệu sản phẩm mới nhất đã được tải:', store.getAllSanPham?.length || 0);
             store.justAddedProduct = true;
-            router.push('/admin/quanlysanpham');
+
+            // Cập nhật dữ liệu bộ lọc để bao gồm các giá trị mới
+            message.loading({ content: 'Đang cập nhật dữ liệu bộ lọc...', key: 'updateFilter' });
+
+            // Tải lại toàn bộ dữ liệu lọc
+            await Promise.all([
+                store.getAllDM(),   // Danh mục
+                store.getAllTH(),   // Thương hiệu
+                store.getAllCL(),   // Chất liệu
+                store.getAllMS(),   // Màu sắc
+                store.getAllKT(),   // Kích thước
+            ]);
+
+            console.log('Đã cập nhật dữ liệu bộ lọc sau khi import Excel');
+            message.success({ content: 'Dữ liệu bộ lọc đã được cập nhật', key: 'updateFilter', duration: 2 });
+
+            // Xóa cache sản phẩm nếu có
+            try {
+                localStorage.removeItem('cached_products');
+                console.log('Đã xóa cache sản phẩm');
+            } catch (e) {
+                console.error('Lỗi khi xóa cache:', e);
+            }
+
+            // Emit event để thông báo component cha làm mới dữ liệu
+            emit('refresh-data');
+
+            // Chuyển hướng trang với setTimeout để đảm bảo dữ liệu đã được cập nhật
+            setTimeout(() => {
+                router.push('/admin/quanlysanpham');
+            }, 300);
         }
     } catch (error) {
         console.error('Lỗi khi lưu dữ liệu:', error);
-        message.error('Đã xảy ra lỗi khi lưu dữ liệu!');
+        message.error('Đã xảy ra lỗi khi lưu dữ liệu: ' + (error.response?.data?.message || error.message || ''));
     } finally {
         uploadLoading.value = false;
     }
-}
+};
 
 // Thêm các biến và hàm cho tính năng xuất Excel
 const exportModalVisible = ref(false);
@@ -616,15 +912,19 @@ const selectAllFields = ref(false);
 const exportFields = ref([
     { label: 'Mã sản phẩm', value: 'ma_san_pham', selected: true },
     { label: 'Tên sản phẩm', value: 'ten_san_pham', selected: true },
+    { label: 'ID chi tiết sản phẩm', value: 'id_chi_tiet_san_pham', selected: true },
     { label: 'Danh mục', value: 'ten_danh_muc', selected: true },
     { label: 'Thương hiệu', value: 'ten_thuong_hieu', selected: true },
     { label: 'Chất liệu', value: 'ten_chat_lieu', selected: true },
-    { label: 'Tổng số lượng', value: 'tong_so_luong', selected: true },
+    { label: 'Số lượng', value: 'tong_so_luong', selected: true },
     { label: 'Giá bán', value: 'gia_ban', selected: true },
-    { label: 'Màu sắc', value: 'mau_sac', selected: false },
-    { label: 'Kích thước', value: 'kich_thuoc', selected: false },
-    { label: 'Mô tả', value: 'mo_ta', selected: false },
-    { label: 'Trạng thái', value: 'trang_thai', selected: true }
+    { label: 'Màu sắc', value: 'mau_sac', selected: true },
+    { label: 'Kích thước', value: 'kich_thuoc', selected: true },
+    { label: 'Trạng thái', value: 'trang_thai', selected: true },
+    { label: 'QR Code', value: 'qr_code', selected: false },
+    { label: 'Ngày tạo', value: 'ngay_tao', selected: false },
+    { label: 'Ngày sửa', value: 'ngay_sua', selected: false },
+    { label: 'Mô tả', value: 'mo_ta', selected: false }
 ]);
 
 // Lấy danh sách sản phẩm được chọn từ component cha
@@ -644,8 +944,434 @@ const canExport = computed(() => {
 
 // Hàm hiển thị modal xuất Excel
 const showExportModal = () => {
-    // Lấy danh sách sản phẩm đã chọn từ store hoặc component cha
+    // Kiểm tra và tải thêm dữ liệu chi tiết sản phẩm nếu cần
+    if (!store.getAllChiTietSanPham || store.getAllChiTietSanPham.length === 0) {
+        message.info('Đang tải dữ liệu chi tiết sản phẩm...');
+        store.getAllCTSP().then(() => {
+            console.log('Đã tải: ', store.getAllChiTietSanPham?.length || 0, 'chi tiết sản phẩm');
+        });
+    }
+
+    // Hiển thị modal
     exportModalVisible.value = true;
+};
+
+// Thêm nút để kiểm tra trực tiếp
+const exportTestExcel = () => {
+    try {
+        message.loading('Đang xuất dữ liệu mẫu...');
+
+        // Tạo một số dữ liệu mẫu
+        const mockData = [
+            {
+                'Mã sản phẩm': 'SP001',
+                'Tên sản phẩm': 'Áo thể thao nam',
+                'Danh mục': 'Áo thể thao',
+                'Thương hiệu': 'Nike',
+                'Chất liệu': 'Polyester',
+                'Số lượng': 10,
+                'Giá bán': 350000,
+                'Màu sắc': 'Đỏ',
+                'Kích thước': 'L'
+            },
+            {
+                'Mã sản phẩm': 'SP002',
+                'Tên sản phẩm': 'Quần thể thao nữ',
+                'Danh mục': 'Quần thể thao',
+                'Thương hiệu': 'Adidas',
+                'Chất liệu': 'Cotton',
+                'Số lượng': 15,
+                'Giá bán': 450000,
+                'Màu sắc': 'Đen',
+                'Kích thước': 'M'
+            }
+        ];
+
+        // Tạo workbook và worksheet
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.json_to_sheet(mockData);
+
+        // Thiết lập độ rộng cột
+        const wscols = [
+            { wch: 15 }, // Mã sản phẩm
+            { wch: 25 }, // Tên sản phẩm
+            { wch: 15 }, // Danh mục
+            { wch: 15 }, // Thương hiệu
+            { wch: 15 }, // Chất liệu
+            { wch: 10 }, // Số lượng
+            { wch: 15 }, // Giá bán
+            { wch: 15 }, // Màu sắc
+            { wch: 15 }  // Kích thước
+        ];
+        ws['!cols'] = wscols;
+
+        // Thêm worksheet vào workbook
+        XLSX.utils.book_append_sheet(wb, ws, "Dữ liệu mẫu");
+
+        // Tạo tên file với timestamp hiện tại
+        const fileName = `test-data-${new Date().toISOString().split('T')[0]}.xlsx`;
+
+        // Xuất file Excel
+        XLSX.writeFile(wb, fileName);
+
+        message.success('Xuất Excel mẫu thành công!');
+    } catch (error) {
+        console.error('Lỗi khi xuất Excel mẫu:', error);
+        message.error('Có lỗi xảy ra khi xuất Excel mẫu');
+    }
+};
+
+// Sửa lại hàm xử lý xuất Excel
+const handleExportExcel = async () => {
+    try {
+        exportLoading.value = true;
+
+        // Debug thông tin trước khi xuất
+        console.log('Bắt đầu xuất Excel');
+        console.log('Số lượng sản phẩm trong store:', store.getAllSanPham?.length || 0);
+        console.log('Số lượng chi tiết sản phẩm trong store:', store.getAllChiTietSanPham?.length || 0);
+
+        // Lấy danh sách các trường đã chọn
+        const selectedFields = exportFields.value
+            .filter(field => field.selected)
+            .map(field => field.value);
+
+        // Tải dữ liệu chi tiết sản phẩm nếu chưa có
+        if (!store.getAllChiTietSanPham || store.getAllChiTietSanPham.length === 0) {
+            try {
+                message.loading('Đang tải dữ liệu chi tiết sản phẩm...');
+                await store.getAllCTSP();
+                console.log('Đã tải: ', store.getAllChiTietSanPham?.length || 0, 'chi tiết sản phẩm');
+            } catch (error) {
+                console.error('Lỗi khi tải chi tiết sản phẩm:', error);
+                message.error('Không thể tải dữ liệu chi tiết sản phẩm');
+                exportLoading.value = false;
+                return;
+            }
+        }
+
+        // Lấy danh sách ID sản phẩm cần xuất (nếu người dùng chọn sản phẩm đã lọc hoặc đã chọn)
+        let filteredProductIds = [];
+
+        if (exportSelection.value === 'filtered' && store.getFilteredProducts?.length > 0) {
+            // Xuất các chi tiết sản phẩm của sản phẩm đã lọc
+            filteredProductIds = store.getFilteredProducts.map(p => p.id_san_pham);
+            console.log('Lọc theo sản phẩm đã lọc:', filteredProductIds);
+        } else if (exportSelection.value === 'selected' && selectedRows.value?.length > 0) {
+            // Xuất các chi tiết sản phẩm của sản phẩm đã chọn
+            filteredProductIds = selectedRows.value.map(p => p.id_san_pham);
+            console.log('Lọc theo sản phẩm đã chọn:', filteredProductIds);
+        }
+
+        // Chuẩn bị dữ liệu cho file Excel từ chi tiết sản phẩm
+        let excelData = prepareDetailExcelData(store.getAllChiTietSanPham, selectedFields, filteredProductIds);
+
+        // Kiểm tra xem có dữ liệu sau khi xử lý không
+        if (!excelData || excelData.length === 0) {
+            console.error('Không có dữ liệu chi tiết sản phẩm sau khi xử lý');
+            message.error('Không có dữ liệu hợp lệ để xuất');
+            exportLoading.value = false;
+            return;
+        }
+
+        console.log('Đã chuẩn bị dữ liệu Excel:', excelData.length, 'dòng');
+        console.log('Mẫu dữ liệu Excel đầu tiên:', excelData[0]);
+
+        // Tạo workbook và worksheet
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.json_to_sheet(excelData);
+
+        // Thiết lập độ rộng cột
+        const wscols = setColumnWidths(excelData);
+        ws['!cols'] = wscols;
+
+        // Thêm worksheet vào workbook
+        XLSX.utils.book_append_sheet(wb, ws, "Chi tiết sản phẩm");
+
+        // Tạo tên file với timestamp hiện tại
+        const fileName = `chi-tiet-san-pham-${new Date().toISOString().split('T')[0]}.xlsx`;
+
+        // Xuất file Excel
+        XLSX.writeFile(wb, fileName);
+
+        message.success('Xuất Excel thành công!');
+        exportModalVisible.value = false;
+    } catch (error) {
+        console.error('Lỗi khi xuất Excel:', error);
+        message.error('Có lỗi xảy ra khi xuất Excel: ' + error.message);
+    } finally {
+        exportLoading.value = false;
+    }
+};
+
+// Hàm chuẩn bị dữ liệu Excel từ chi tiết sản phẩm
+const prepareDetailExcelData = (chiTietSanPhams, selectedFields, filteredProductIds = []) => {
+    if (!chiTietSanPhams || chiTietSanPhams.length === 0) {
+        console.error('Không có dữ liệu chi tiết sản phẩm để xuất');
+        return [];
+    }
+
+    console.log('Chuẩn bị dữ liệu Excel từ', chiTietSanPhams.length, 'chi tiết sản phẩm');
+    console.log('Mẫu chi tiết sản phẩm đầu tiên:', JSON.parse(JSON.stringify(chiTietSanPhams[0])));
+
+    // Lọc chi tiết sản phẩm theo ID sản phẩm nếu có
+    let filteredCTSPs = chiTietSanPhams;
+    if (filteredProductIds.length > 0 && exportSelection.value !== 'all') {
+        filteredCTSPs = chiTietSanPhams.filter(ct =>
+            ct && filteredProductIds.includes(
+                typeof ct.id_san_pham === 'number'
+                    ? ct.id_san_pham
+                    : ct.sanPham?.id_san_pham)
+        );
+        console.log('Sau khi lọc theo ID sản phẩm:', filteredCTSPs.length, 'chi tiết sản phẩm');
+    }
+
+    // Tạo dữ liệu Excel
+    return filteredCTSPs.map(ct => {
+        // Tạo đối tượng dữ liệu Excel trống
+        const row = {};
+
+        // Thêm thông tin từ chi tiết sản phẩm
+        if (selectedFields.includes('ma_san_pham')) row['Mã sản phẩm'] = ct.ma_san_pham || '';
+        if (selectedFields.includes('ten_san_pham')) row['Tên sản phẩm'] = ct.ten_san_pham || '';
+        if (selectedFields.includes('id_chi_tiet_san_pham')) row['ID chi tiết SP'] = ct.id_chi_tiet_san_pham || '';
+
+        // Thêm thông tin danh mục, thương hiệu, chất liệu
+        if (selectedFields.includes('ten_danh_muc')) row['Danh mục'] = ct.ten_danh_muc || '';
+        if (selectedFields.includes('ten_thuong_hieu')) row['Thương hiệu'] = ct.ten_thuong_hieu || '';
+        if (selectedFields.includes('ten_chat_lieu')) row['Chất liệu'] = ct.ten_chat_lieu || '';
+
+        // Thêm thông tin màu sắc và kích thước
+        if (selectedFields.includes('mau_sac')) row['Màu sắc'] = ct.ten_mau || '';
+        if (selectedFields.includes('kich_thuoc')) {
+            const kichThuoc = ct.gia_tri || '';
+            const donVi = ct.don_vi || '';
+            row['Kích thước'] = kichThuoc + (donVi ? ' ' + donVi : '');
+        }
+
+        // Thêm thông tin số lượng và giá bán
+        if (selectedFields.includes('tong_so_luong')) row['Số lượng'] = ct.so_luong || 0;
+        if (selectedFields.includes('gia_ban')) row['Giá bán'] = ct.gia_ban || 0;
+
+        // Thêm thông tin trạng thái và thời gian
+        if (selectedFields.includes('trang_thai')) row['Trạng thái'] = ct.trang_thai || '';
+        if (selectedFields.includes('ngay_tao')) row['Ngày tạo'] = ct.ngay_tao || '';
+        if (selectedFields.includes('ngay_sua')) row['Ngày sửa'] = ct.ngay_sua || '';
+
+        // Thêm thông tin QR và mô tả
+        if (selectedFields.includes('qr_code')) row['QR Code'] = ct.qr_code || '';
+        if (selectedFields.includes('mo_ta')) row['Mô tả'] = ct.mo_ta || '';
+
+        return row;
+    });
+};
+
+// Hàm thiết lập độ rộng cột
+const setColumnWidths = (data) => {
+    if (!data || data.length === 0) return [];
+
+    const sample = data[0];
+    return Object.keys(sample).map(key => {
+        // Thiết lập độ rộng dựa trên loại trường
+        if (key === 'Tên sản phẩm' || key === 'Mô tả') {
+            return { wch: 40 }; // Rộng hơn cho text dài
+        } else if (key === 'Màu sắc' || key === 'Kích thước') {
+            return { wch: 20 }; // Trung bình cho danh sách
+        } else {
+            return { wch: 15 }; // Mặc định cho các trường còn lại
+        }
+    });
+};
+
+// Phương thức để nhận danh sách sản phẩm được chọn từ component cha
+const updateSelectedRows = (rows) => {
+    selectedRows.value = rows;
+};
+
+// Expose để component cha có thể gọi
+defineExpose({
+    checkAndLoadFilterData,
+    updateSelectedRows
+});
+
+// Các hàm tiện ích
+const formatFileSize = (bytes) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+};
+
+const formatPrice = (price) => {
+    if (!price) return '0 ₫';
+    return new Intl.NumberFormat('vi-VN', {
+        style: 'currency',
+        currency: 'VND',
+        minimumFractionDigits: 0
+    }).format(price);
+};
+
+// Xử lý kéo thả file
+const handleFileDrop = (event) => {
+    isDragging.value = false;
+    const files = event.dataTransfer.files;
+    if (files.length > 0) {
+        validateAndProcessFile(files[0]);
+    }
+};
+
+// Kiểm tra và xử lý file
+const validateAndProcessFile = (file) => {
+    importError.value = '';
+
+    // Kiểm tra file type
+    const isExcel = file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+        file.type === 'application/vnd.ms-excel' ||
+        file.name.endsWith('.xlsx') ||
+        file.name.endsWith('.xls');
+
+    if (!isExcel) {
+        importError.value = 'Vui lòng chỉ tải lên file Excel (.xlsx hoặc .xls)';
+        return;
+    }
+
+    // Kiểm tra kích thước file (dưới 5MB)
+    const isLt5M = file.size / 1024 / 1024 < 5;
+    if (!isLt5M) {
+        importError.value = 'File phải nhỏ hơn 5MB!';
+        return;
+    }
+
+    console.log('File hợp lệ:', file);
+    console.log('File type:', file.type);
+    console.log('File size:', file.size);
+
+    selectedFile.value = file;
+
+    // Reset input file để có thể chọn lại cùng một file
+    if (fileInput.value) {
+        fileInput.value.value = '';
+    }
+};
+
+// Thay thế file hiện tại
+const replaceFile = () => {
+    triggerFileSelect();
+};
+
+// Xóa file đã chọn
+const removeFile = () => {
+    selectedFile.value = null;
+    importError.value = '';
+    if (fileInput.value) {
+        fileInput.value.value = '';
+    }
+};
+
+// Đóng modal import
+const closeImportModal = () => {
+    openModalImportExcel.value = false;
+    selectedFile.value = null;
+    importError.value = '';
+    if (fileInput.value) {
+        fileInput.value.value = '';
+    }
+};
+
+// Kiểm tra và xem trước dữ liệu
+const validateAndPreview = async () => {
+    if (!selectedFile.value) {
+        message.error('Vui lòng chọn file Excel!');
+        return;
+    }
+
+    importValidating.value = true;
+    importError.value = '';
+
+    try {
+        const result = await store.importExcel(selectedFile.value);
+
+        if (result && result.length > 0) {
+            // Log dữ liệu từ file Excel
+            console.log('Dữ liệu từ file Excel:', result);
+            console.log('Tổng số dòng dữ liệu:', result.length);
+
+            // Log chi tiết hơn về một dòng dữ liệu mẫu
+            if (result.length > 0) {
+                console.log('Cấu trúc dữ liệu mẫu (dòng đầu tiên):', result[0]);
+            }
+
+            importExcelData.value = result;
+            importExcelModal.value = true;
+            openModalImportExcel.value = false;
+        } else {
+            importError.value = 'Không tìm thấy dữ liệu trong file Excel hoặc định dạng không hợp lệ';
+        }
+    } catch (error) {
+        console.error('Lỗi khi validate Excel:', error);
+        importError.value = 'Không thể đọc file Excel: ' + (error.response?.data?.message || error.message || 'Lỗi không xác định');
+    } finally {
+        importValidating.value = false;
+    }
+};
+
+// Đếm số dòng hợp lệ
+const countValidRows = () => {
+    if (!importExcelData.value || importExcelData.value.length === 0) return 0;
+
+    return importExcelData.value.filter(item => !hasRowError(item)).length;
+};
+
+// Đếm số dòng không hợp lệ
+const countInvalidRows = () => {
+    if (!importExcelData.value || importExcelData.value.length === 0) return 0;
+
+    return importExcelData.value.filter(item => hasRowError(item)).length;
+};
+
+// Kiểm tra xem dòng có lỗi không
+const hasRowError = (item) => {
+    if (!item) return true;
+
+    return !item.sanPham.ten_san_pham ||
+        item.gia_ban === 0 ||
+        item.so_luong === 0 ||
+        item.so_luong === null ||
+        !item.sanPham.danhMuc.ten_danh_muc ||
+        !item.sanPham.thuongHieu.ten_thuong_hieu ||
+        !item.sanPham.chatLieu.ten_chat_lieu ||
+        !item.mauSac.ma_mau_sac ||
+        !item.kichThuoc.gia_tri;
+};
+
+// Lọc dữ liệu theo chế độ xem
+const filteredImportData = computed(() => {
+    if (!importExcelData.value || importExcelData.value.length === 0) return [];
+
+    switch (dataPreviewMode.value) {
+        case 'valid':
+            return importExcelData.value.filter(item => !hasRowError(item));
+        case 'invalid':
+            return importExcelData.value.filter(item => hasRowError(item));
+        case 'all':
+        default:
+            return importExcelData.value;
+    }
+});
+
+// Tải template mẫu
+const downloadTemplate = () => {
+    // Thông báo nếu chưa có API tải template
+    message.info('Tính năng tải template sẽ được cập nhật sau');
+
+    // Khi có API tải template, thực hiện như sau:
+    // const link = document.createElement('a');
+    // link.href = '/api/template/excel-import-template.xlsx';
+    // link.download = 'san-pham-template.xlsx';
+    // document.body.appendChild(link);
+    // link.click();
+    // document.body.removeChild(link);
 };
 
 // Khi người dùng chọn/bỏ chọn tất cả các trường
@@ -661,57 +1387,18 @@ watch(() => [...exportFields.value.map(f => f.selected)], (newVal) => {
     selectAllFields.value = newVal.every(v => v === true);
 }, { deep: true });
 
-// Xử lý xuất Excel
-const handleExportExcel = async () => {
-    try {
-        exportLoading.value = true;
-
-        // Lấy danh sách các trường đã chọn
-        const selectedFields = exportFields.value
-            .filter(field => field.selected)
-            .map(field => field.value);
-
-        // Lấy danh sách ID sản phẩm cần xuất
-        let productIds = [];
-
-        if (exportSelection.value === 'all') {
-            // Xuất tất cả sản phẩm
-            productIds = null; // Null có nghĩa là tất cả sản phẩm
-        } else if (exportSelection.value === 'filtered' && store.getFilteredProducts.length > 0) {
-            // Xuất các sản phẩm đã lọc
-            productIds = store.getFilteredProducts.map(p => p.id_san_pham);
-        } else if (exportSelection.value === 'selected' && selectedRows.value.length > 0) {
-            // Xuất các sản phẩm đã chọn
-            productIds = selectedRows.value.map(p => p.id_san_pham);
-        } else {
-            message.warning('Vui lòng chọn sản phẩm để xuất');
-            exportLoading.value = false;
-            return;
-        }
-
-        // Gọi hàm xuất Excel
-        const result = await store.exportExcel(productIds, selectedFields);
-
-        if (result) {
-            message.success('Xuất Excel thành công!');
-            exportModalVisible.value = false;
-        }
-    } catch (error) {
-        console.error('Lỗi khi xuất Excel:', error);
-        message.error('Có lỗi xảy ra khi xuất Excel');
-    } finally {
-        exportLoading.value = false;
+// Watch for sorting option changes
+watch(() => luuBien.value, (newValue) => {
+    if (newValue !== '1') {
+        console.log('Sorting option changed to:', newValue);
+        // Dispatch a custom event that can be caught by the table component
+        const sortEvent = new CustomEvent('sort-option-changed', {
+            detail: {
+                option: newValue
+            }
+        });
+        window.dispatchEvent(sortEvent);
     }
-};
-
-// Phương thức để nhận danh sách sản phẩm được chọn từ component cha
-const updateSelectedRows = (rows) => {
-    selectedRows.value = rows;
-};
-
-// Expose để component cha có thể gọi
-defineExpose({
-    updateSelectedRows
 });
 </script>
 
@@ -763,6 +1450,201 @@ defineExpose({
     padding: 0 16px;
     height: 100%;
     overflow-y: auto;
+}
+
+/* Styles cho phần import Excel */
+.upload-container {
+    margin-bottom: 20px;
+}
+
+.upload-instructions {
+    background-color: #f9f9f9;
+    padding: 15px;
+    border-radius: 6px;
+    margin-bottom: 15px;
+}
+
+.upload-instructions h5 {
+    font-weight: 600;
+    margin-bottom: 10px;
+}
+
+.upload-instructions ol {
+    padding-left: 20px;
+    margin-bottom: 0;
+}
+
+.upload-instructions .template-link {
+    color: #f33b47;
+    text-decoration: underline;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.upload-area {
+    border: 2px dashed #d9d9d9;
+    border-radius: 6px;
+    padding: 20px;
+    text-align: center;
+    transition: all 0.3s;
+}
+
+.upload-area.is-dragging {
+    border-color: #f33b47;
+    background-color: rgba(243, 59, 71, 0.05);
+}
+
+.upload-area.has-file {
+    border-color: #52c41a;
+    background-color: rgba(82, 196, 26, 0.05);
+}
+
+.upload-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 120px;
+}
+
+.upload-icon {
+    font-size: 32px;
+    color: #999;
+    margin-bottom: 10px;
+}
+
+.selected-file {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    background-color: #fafafa;
+    border-radius: 4px;
+}
+
+.file-icon {
+    font-size: 28px;
+    color: #52c41a;
+    margin-right: 15px;
+}
+
+.file-info {
+    flex-grow: 1;
+    text-align: left;
+}
+
+.file-name {
+    margin: 0;
+    font-weight: 500;
+}
+
+.file-size {
+    margin: 0;
+    color: #888;
+    font-size: 12px;
+}
+
+.file-actions {
+    display: flex;
+    gap: 5px;
+}
+
+.error-message {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #ff4d4f;
+    padding: 8px 12px;
+    background-color: #fff2f0;
+    border: 1px solid #ffccc7;
+    border-radius: 4px;
+}
+
+.validating-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #1890ff;
+    padding: 8px 12px;
+    background-color: #e6f7ff;
+    border: 1px solid #91d5ff;
+    border-radius: 4px;
+}
+
+/* Styles cho modal dữ liệu import */
+.data-preview-stats {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 20px;
+}
+
+.stat-item {
+    flex: 1;
+    text-align: center;
+    padding: 10px 15px;
+    background-color: #f9f9f9;
+    border-radius: 4px;
+}
+
+.stat-value {
+    font-size: 24px;
+    font-weight: 600;
+    margin: 0;
+}
+
+.stat-label {
+    margin: 0;
+    color: #666;
+}
+
+.text-warning .stat-value {
+    color: #fa8c16;
+}
+
+.data-action-buttons {
+    margin-bottom: 15px;
+}
+
+.table-container {
+    max-height: 70vh;
+    overflow-y: auto;
+    overflow-x: auto;
+}
+
+.table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.table th,
+.table td {
+    padding: 8px;
+    text-align: left;
+    white-space: nowrap;
+}
+
+.table th {
+    position: sticky;
+    top: 0;
+    background-color: #f5f5f5;
+    z-index: 1;
+}
+
+.table-bordered th,
+.table-bordered td {
+    border: 1px solid #dee2e6;
+}
+
+.table tr.has-error {
+    background-color: #fff1f0;
+}
+
+.table td.cell-error {
+    background-color: #ffccc7;
+    color: #cf1322;
+}
+
+.import-summary {
+    margin-top: 15px;
 }
 
 :deep(.custom-select) {
@@ -877,33 +1759,14 @@ defineExpose({
     justify-content: center;
 }
 
-.table-container {
+/* Style cho export Excel */
+.export-modal-content {
     max-height: 70vh;
     overflow-y: auto;
-    overflow-x: auto;
 }
 
-.table {
-    width: 100%;
-    border-collapse: collapse;
-}
-
-.table th,
-.table td {
-    padding: 8px;
-    text-align: left;
-    white-space: nowrap;
-}
-
-.table th {
-    position: sticky;
-    top: 0;
-    background-color: #f5f5f5;
-    z-index: 1;
-}
-
-.table-bordered th,
-.table-bordered td {
-    border: 1px solid #dee2e6;
+.field-selection {
+    margin-top: 16px;
+    margin-bottom: 16px;
 }
 </style>
